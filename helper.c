@@ -4,8 +4,7 @@
  * Copyright (C) 2022 Red Hat Inc
  */
 
-#define _GNU_SOURCE
-
+#define _GNU_SOURCE 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -15,6 +14,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/epoll.h>
+#include <sys/mman.h>
 #include <strings.h>
 #include <pthread.h>
 #include <fcntl.h>
@@ -22,36 +22,9 @@
 #include <time.h>
 #include "helper.h"
 
-#define STATE_UNINIT 0
-#define STATE_ERROR -1
-#define STATE_RUNNING 1
-
-struct mapping {
-    unsigned int id;
-    unsigned long long mapped_at;
-    unsigned long long size;
-    unsigned int state;
-    int fd;
-};
-
-#define MAX_QUEUE_DEPTH 256
-
-struct command_queue {
-    atomic_int queue_depth;
-	int head, tail;
-    pthread_spinlock_t head_lock;
-    pthread_spinlock_t tail_lock;
-    struct helper_command **elements;
-    struct mmsghdr msgvecs[MAX_QUEUE_DEPTH];
-};
-
-struct connection {
-    int fd;
-    struct mapping *mappings;
-    struct command_queue *in_queue, *out_queue;
-};
-
-static void *(*process_command)(struct helper_command *command);
+static int (*process_command)(
+        struct helper_command *command, struct connection *con 
+        );
 
 #define MAX_CLIENTS 256
 
@@ -60,7 +33,7 @@ static struct timespec ZERO;
 
 static int epoll_fd;
 
-void set_process_command(void *(*arg)(struct helper_command *command))
+void set_process_command(int (*arg)(struct helper_command *command, struct connection *con))
 {
 	process_command = arg;
 }
@@ -93,8 +66,6 @@ static int q_depth(struct command_queue *q)
 	return atomic_load_explicit(&q->queue_depth, memory_order_acquire);
 }
 
-
-
 /* Queueing operations specifically optimized for use in
  * recvmmsg/sendmmsg using multiple element enqueue/dequeue
  * in one operation.
@@ -111,6 +82,7 @@ static struct command_queue *create_queue()
     result->head = 0;
     atomic_init (&result->queue_depth, 0);
     result->elements = calloc(MAX_QUEUE_DEPTH, sizeof(struct helper_command *));
+    result->msgvecs = calloc(MAX_QUEUE_DEPTH, sizeof(struct mmsghdr));
     for (i = 0; i < MAX_QUEUE_DEPTH; i++) {
         cm = result->elements[i] = malloc(sizeof(struct helper_command));
         cm->header.command = 0;
@@ -133,17 +105,111 @@ static struct command_queue *destroy_queue(struct command_queue *q)
     }
     pthread_spin_destroy(&q->head_lock);
     pthread_spin_destroy(&q->tail_lock);
+    free(q->msgvecs);
     free(q->elements);
     free(q);
 }
 
+static struct mapping *create_mapping(struct helper_command *cmd)
+{
+    int i, fd;
+    struct cmsghdr *hdr = ( struct cmsghdr *)cmd->control;
+    unsigned char *data = cmd->control + sizeof(struct cmsghdr);
+    struct mapping *map = NULL;
+    struct helper_map_data *cdata = (struct helper_map_data *) cmd->data;
+
+    if (cmd->header.command == EX_H_MAP && cmd->control_size) {
+        fd = *((int*) data);
+        if (cdata->mem_id) {
+            map = malloc(sizeof(struct mapping));
+            map->id = cdata->mem_id;
+            map->fd = fd;
+            map->mapped_at = (unsigned long long) mmap(
+                    NULL, cdata->size, PROT_WRITE | PROT_READ, MAP_SHARED, map->fd, 0);
+            map->size = cdata->size;
+            if (map->mapped_at == (unsigned long long) MAP_FAILED) {
+                close(map->fd);
+                free(map);
+                map = NULL;
+            }
+            cmd->control_size = 0;
+        } else {
+            close(fd);
+        }
+    }
+    return map;
+}
+
+
+
+static int delete_mapping(struct mapping *map)
+{
+    if (map) {
+        munmap((void *)map->mapped_at, map->size);
+        close(map->fd);
+        free(map);
+    }
+}
+
+static int process_delete_map(struct helper_command *cmd, struct connection *con)
+{
+    struct helper_map_data *cdata = get_data(cmd);
+
+    if (cdata->mem_id > 0 && cdata->mem_id < MAX_MAPPINGS && con->mappings[cdata->mem_id]) {
+        delete_mapping(con->mappings[cdata->mem_id]);
+        con->mappings[cdata->mem_id] = NULL;
+        return 0;
+    }
+    return -ENOENT;
+}
+
+void create_ack(struct helper_command *cmd, int error)
+{
+    struct helper_ack_data *err = (struct helper_ack_data *) cmd->data;
+    if (cmd->header.command != EX_H_ECHO) {
+        cmd->header.command = EX_H_ACK;
+        err->error = error;
+        cmd->data_size = sizeof(struct helper_ack_data);
+    }
+}
+
+static int process_internal_command(
+        struct helper_command *cmd, struct connection *con)
+{
+    int ret;
+
+    switch(cmd->header.command) {
+    case EX_H_MAP: {
+        struct helper_map_data *cdata = get_data(cmd);
+
+        if (cdata->mem_id > 0 && cdata->mem_id < MAX_MAPPINGS &&
+                (con->mappings[cdata->mem_id] == NULL)) {
+            con->mappings[cdata->mem_id] = create_mapping(cmd);
+            if (con->mappings[cdata->mem_id]) {
+                create_ack(cmd, 0);
+                return 0;
+            }
+            create_ack(cmd, -EINVAL);
+            return -EINVAL;
+        } 
+        create_ack(cmd, -EBUSY);
+        return -EBUSY;
+    }
+    case EX_H_UNMAP:
+        ret = process_delete_map(cmd, con);
+        create_ack(cmd, ret);
+        return ret;
+    }
+    return 0;
+}
+
 static int run_processing(struct connection *con)
 {
-    int queue_depth, queue_avail, i;
+    int queue_depth, queue_avail, i, ret;
     struct command_queue *in = con->in_queue;
     struct command_queue *out = con->out_queue;
 
-    struct helper_command *command;
+    struct helper_command *cmd;
 
 
 	queue_depth = q_depth(in);
@@ -158,10 +224,14 @@ static int run_processing(struct connection *con)
 
 		pthread_spin_lock(&in->head_lock);
 		for (i = 0; i < queue_depth; i++) {
-			if (process_command) {
-				process_command(
-					in->elements[(in->head + i) % MAX_QUEUE_DEPTH]);
-			}
+            cmd = in->elements[(in->head + i) % MAX_QUEUE_DEPTH];
+            ret = process_internal_command(cmd, con);
+            if (ret > 0) {
+                if (process_command) {
+                    ret = process_command(cmd, con);
+                }
+            }
+            create_ack(cmd, ret);
 		}
 
 		pthread_spin_lock(&out->tail_lock);
@@ -254,11 +324,10 @@ static int send_from_q(struct command_queue *q, int fd)
                 q->msgvecs[i].msg_hdr.msg_iov[1].iov_base = cm->data;
                 q->msgvecs[i].msg_hdr.msg_iov[1].iov_len = cm->data_size;
                 q->msgvecs[i].msg_hdr.msg_iovlen = 2;
+                q->msgvecs[i].msg_hdr.msg_controllen = cm->control_size;
                 if (cm->control_size) {
-                    q->msgvecs[i].msg_hdr.msg_controllen = cm->control_size;
                     q->msgvecs[i].msg_hdr.msg_control = cm->control;
                 } else {
-                    q->msgvecs[i].msg_hdr.msg_controllen = cm->control_size;
                     q->msgvecs[i].msg_hdr.msg_control = NULL;
                 }
                 q->msgvecs[i].msg_hdr.msg_flags = MSG_EOR | MSG_NOSIGNAL;
@@ -330,9 +399,13 @@ static void destroy_mappings(struct mapping *m)
 
 static int close_connection(struct connection *con)
 {
+    int i;
+
     if (con->fd > 0) {
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, con->fd, NULL); 
-        destroy_mappings(con->mappings);
+        for (i=0; i<MAX_MAPPINGS; i++) {
+            delete_mapping(con->mappings[i]);
+        }
         destroy_queue(con->in_queue);
         destroy_queue(con->out_queue);
         con->in_queue = NULL;
@@ -345,7 +418,7 @@ static int close_connection(struct connection *con)
 
 static int accept_connection(int fd)
 {
-    int i;
+    int i, j;
     struct epoll_event ctl;
 
     for (i=1; i < MAX_CLIENTS; i++) {
@@ -359,9 +432,12 @@ static int accept_connection(int fd)
                     clients[i].fd = -1;
                     return -ENOSPC;
                 }
-    			clients[i].mappings = NULL;
+    			clients[i].mappings = calloc(MAX_MAPPINGS, sizeof(struct mapping *));
 				clients[i].in_queue = create_queue();
 				clients[i].out_queue = create_queue();
+                for (j=0; j<MAX_MAPPINGS; j++) {
+                    clients[i].mappings[j] = NULL;
+                }
                 return 0;
             } else {
                 return -EAGAIN;

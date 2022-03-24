@@ -13,6 +13,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/epoll.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <strings.h>
 #include <pthread.h>
 #include <string.h>
@@ -89,13 +92,14 @@ static bool compare_cmds()
 
     result = to_recv.data_size == to_send.data_size ; 
     if (!result) {
-        printf("Data size mismatch\n");
+        printf("Data size mismatch %d %d\n", to_recv.data_size, to_send.data_size);
         return result;
     }
 
     result = to_recv.control_size == to_send.control_size;
     if (!result) {
-        printf("Control size mismatch\n");
+        printf("Control size mismatch %i %i\n",
+                to_recv.control_size, to_send.control_size);
         return result;
     }
 
@@ -108,6 +112,27 @@ static bool compare_cmds()
 	return true;
 }
 
+static bool check_ack()
+{
+    bool result = true;
+    struct helper_ack_data *data = (struct helper_ack_data *) to_recv.data;
+
+
+    result = to_recv.header.command == EX_H_ACK;
+
+    if (!result) {
+        printf("Header command mismatch\n");
+        return result;
+    }
+
+    result = to_recv.header.sequence == to_send.header.sequence;
+    if (!result) {
+        printf("Header seq mismatch\n");
+        return result;
+    }
+    
+	return (data->error >= 0);
+}
 static int connect_to_server(char *pathname)
 {
     int fd;
@@ -135,7 +160,7 @@ static void init()
     to_send.data = malloc(HELPER_MAX_DATA);
     to_recv.data = malloc(HELPER_MAX_DATA);
     to_send.control_size = 0;
-    to_send.control = NULL;
+    to_send.control = malloc(1024);
     to_recv.control = malloc(1024);
 }
 
@@ -143,13 +168,15 @@ static void clear()
 {
     memset(to_send.data, HELPER_MAX_DATA, 0);
     memset(to_recv.data, HELPER_MAX_DATA, 0);
+    to_send.control_size = 0;
+    to_recv.control_size = 0;
 }
 
 static int test01(int fd)
 {
     int ret = 0;
     clear();
-    to_send.header.command = EX_H_INIT;
+    to_send.header.command = EX_H_ECHO;
     to_send.header.sequence = 31337;
     to_send.data_size = 256;
     memcpy(to_send.data, testpattern, strlen(testpattern));
@@ -169,6 +196,46 @@ static int test01(int fd)
     return -EINVAL;
 }
 
+static int test02(int fd)
+{
+    int ret, mfd = 0;
+    struct helper_map_data *mdata = (struct helper_map_data *) to_send.data;
+    void * test_f;
+    struct cmsghdr *cmsg = (struct cmsghdr *) to_send.control;
+    unsigned char *data = to_send.control + sizeof(struct cmsghdr);
+
+
+    clear();
+    to_send.header.command = EX_H_MAP;
+    to_send.header.sequence = 31338;
+
+    mdata->mem_id = 1;
+    mdata->size = 65536;
+    mfd = open("/tmp/test-map", O_RDWR);
+
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type = SCM_RIGHTS;
+    cmsg->cmsg_len = CMSG_LEN(sizeof(mfd));
+    *((int *)data) = mfd;
+    to_send.data_size = sizeof(struct helper_map_data);
+    to_send.control_size = sizeof(struct cmsghdr) + sizeof(int);
+
+    ret = send_command(fd);
+    if (ret < 0) {
+        printf("Send error %s\n", strerror(-ret));
+        return ret;
+    }
+    ret = recv_command(fd);
+    if (ret < 0) {
+        printf("Recv error %s\n", strerror(-ret));
+        return ret;
+    }
+    if (check_ack()) {
+        return 0;
+    }
+    return -EINVAL;
+}
+
 static void run_tests(int fd)
 {
     int ret;
@@ -177,6 +244,12 @@ static void run_tests(int fd)
         printf("Test 01 successful\n");
     } else {
         printf("Test 01 failed, error %d\n", ret);
+    }
+    ret = test02(fd);
+    if (ret == 0 ) {
+        printf("Test 02 successful\n");
+    } else {
+        printf("Test 02 failed, error %d\n", ret);
     }
 }
 
