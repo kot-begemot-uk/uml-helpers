@@ -5,22 +5,27 @@ RELEASE = v$(VER)
 HEADERS = helper.h crypto.h
 LIB=libhelperlib.a
 
-CFILES = helper.c crypto.c
-TESTCFILES = self-test-server.c self-test-client.c
+CFILES = helper.c
+CRYPTO = crypto.c $(CFILES)
 
 objects = $(CFILES:.c=.o)
-testobjects = $(TESTCFILES:.c=.o)
+crypto = $(CRYPTO:.c=.o)
 
-CFLAGS += -O2
-LDFLAGS = -lhelperlib
+CFLAGS += -g -O2 -pthread
+CRYPTO_LDFLAGS = -L ./ $(LIB) -lcrypto_mb -lippcp
 
-libbelperlib.a: $(objects)
-	$(AR) rcs $(LIB) $(objects)
+helper: $(crypto)
 
-test: all
-	$(CC) -L./ $(LDFLAGS) -o self-test-server self-test-server.c
 
-all: libhelperlib.a
+test: libhelper.a
+	$(CC) $(CFLAGS) -o self-test-client self-test-client.c 
+	$(CC) $(CFLAGS) -o self-test-client-crypto self-test-client-crypto.c
+	$(CC) $(CFLAGS) -o self-test-server $(objects) self-test-server.c -L ./ $(LIB)
+	$(CC) $(CFLAGS) -o self-test-crypto-server $(crypto) self-test-crypto-server.c $(CRYPTO_LDFLAGS)
+
+libhelper.a: $(crypto)
+	$(AR) rcs $(LIB) $(crypto)
 
 clean:
-	rm -rf $(objects) $(testobjects) libhelperlib.a
+	rm -rf $(objects) $(crypto) self-test-client self-test-server self-test-client-crypto self-test-crypto-server
+
