@@ -225,13 +225,13 @@ static int run_processing(struct connection *con)
 		pthread_spin_lock(&in->head_lock);
 		for (i = 0; i < queue_depth; i++) {
             cmd = in->elements[(in->head + i) % MAX_QUEUE_DEPTH];
-            ret = process_internal_command(cmd, con);
-            if (ret > 0) {
+            if (cmd->header.command <= EX_H_INTERNAL_CMDS) {
+                ret = process_internal_command(cmd, con);
+            } else {
                 if (process_command) {
                     ret = process_command(cmd, con);
                 }
             }
-            create_ack(cmd, ret);
 		}
 
 		pthread_spin_lock(&out->tail_lock);
