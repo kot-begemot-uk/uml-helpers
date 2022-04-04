@@ -80,6 +80,7 @@ struct command_queue {
     pthread_spinlock_t tail_lock;
     struct helper_command **elements;
     struct mmsghdr *msgvecs;
+    struct iovec *iovecs;
 };
 
 struct connection {
@@ -98,6 +99,20 @@ extern void set_process_command(
         struct connection *con    
         ));
 extern void create_ack(struct helper_command *cmd, int error);
+extern int recv_to_q(struct command_queue *q, int fd);
+extern int send_from_q(struct command_queue *q, int fd);
+extern struct helper_command *h_dequeue_one(struct command_queue *q);
+extern void h_enqueue_one(struct command_queue *q, struct helper_command *cmd);
+extern struct helper_command *h_create_command();
+extern void h_destroy_command(struct helper_command *cmd);
+extern struct command_queue *create_queue();
+extern int h_queue_depth(struct command_queue *q);
+extern struct helper_command *check_acks_and_dequeue(struct command_queue *q);
 
+#ifdef DEBUG
+#define LOG(...) fprintf (stderr, __VA_ARGS__)
+#else
+#define LOG(...) do {} while (false)
+#endif
 
 #endif

@@ -30,7 +30,9 @@ static int map_return_code(int ipp_return)
         case ippStsRangeErr:
         case ippStsDivByZero:
         case ippStsFeaturesCombination:
-        case ippStsErr: return -EINVAL;
+        case ippStsErr: {
+            return -EINVAL;
+        }
 
         case ippStsNoMemErr:
         case ippStsMemAllocErr: return -ENOMEM;
@@ -40,7 +42,9 @@ static int map_return_code(int ipp_return)
         case ippStsNoOperation: 
         case ippStsWaterfall:
         case ippStsNoErr: return 0;
-        default: return -EINVAL;
+        default: {
+            return -EINVAL;
+        }
     }
 }
 
@@ -107,45 +111,45 @@ static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool
     struct c_en_decrypt *el = (struct c_en_decrypt *) cmd->data;
 
     for (i = 0; i < num_elements; i++) {
+        ret = -EINVAL;
         if ((el->mem_id >= 0 && el->mem_id < MAX_MAPPINGS) &&
               (con->mappings[el->mem_id]->fd > 0)){
             switch (el[i].algo) {
             case C_AESCBC: {
-                if ((el[i].pSrc + el[i].pLen > con->mappings[el->mem_id]->size) ||
-                        (el[i].pDst + el[i].pLen > con->mappings[el->mem_id]->size)) {
-                    ret = -EINVAL;
+                    if ((el[i].pSrc + el[i].pLen > con->mappings[el->mem_id]->size) ||
+                            (el[i].pDst + el[i].pLen > con->mappings[el->mem_id]->size)) {
+                        ret = -EINVAL;
+                    } else { 
+                        if (decrypt) {
+                            ret = map_return_code(
+                                ippsAESDecryptCBC(
+                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
+                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
+                                    el[i].pLen,
+                                    (void *) el[i].context,
+                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
+                        } else {
+                            ret = map_return_code(
+                                ippsAESEncryptCBC(
+                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
+                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
+                                    el[i].pLen,
+                                    (void *) el[i].context,
+                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
+                        }
+                        msync((char *) el[i].pDst + con->mappings[el->mem_id]->mapped_at, el[i].pLen, MS_SYNC);
+                    }
                     break;
                 }
-
-                if (decrypt) {
-                    ret = map_return_code(
-                        ippsAESDecryptCBC(
-                            (char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                            (char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                            el[i].pLen,
-                            (void *) el[i].context,
-                            (char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                } else {
-                    ret = map_return_code(
-                        ippsAESEncryptCBC(
-                            (char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                            (char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                            el[i].pLen,
-                            (void *) el[i].context,
-                            (char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                }
-                msync((char *) el[i].pDst + con->mappings[el->mem_id]->mapped_at, el[i].pLen, MS_SYNC);
-                break;
             }
-            default:
-                ret = -EINVAL;
-            }
-        }
+        } 
+        create_ack(cmd, ret);
         if (ret) {
-            create_ack(cmd, ret);
+            LOG("Failed to en_decrypt %d\n", ret);
             break;
         }
     }
+    return ret;
 }
 
 static int handle_command(struct helper_command *cmd, struct connection *con)
@@ -164,6 +168,7 @@ static int handle_command(struct helper_command *cmd, struct connection *con)
             return -EINVAL;
     }
 }
+
 
 void init_crypto_helper()
 {

@@ -145,7 +145,7 @@ static int connect_to_server(char *pathname)
         return -errno;
 
     name.sun_family = AF_UNIX;
-    strncpy((char *) &name.sun_path, pathname, sizeof(name.sun_path));
+    strncpy((char *) &name.sun_path, pathname, sizeof(name.sun_path) - 1);
 
     if (connect(fd, (const struct sockaddr *) &name, sizeof(name)) < 0) {
         close(fd);
@@ -168,8 +168,8 @@ static void init()
 
 static void clear()
 {
-    memset(to_send.data, HELPER_MAX_DATA, 0);
-    memset(to_recv.data, HELPER_MAX_DATA, 0);
+    memset(to_send.data, 0, HELPER_MAX_DATA);
+    memset(to_recv.data, 0, HELPER_MAX_DATA);
     to_send.control_size = 0;
     to_recv.control_size = 0;
 }
@@ -204,9 +204,8 @@ static int test02(int fd)
 {
     int ret, mfd = 0;
     struct helper_map_data *mdata = (struct helper_map_data *) to_send.data;
-    void * test_f;
     struct cmsghdr *cmsg = (struct cmsghdr *) to_send.control;
-    unsigned char *data = to_send.control + sizeof(struct cmsghdr);
+    char *data = to_send.control + sizeof(struct cmsghdr);
 
 
     clear();
@@ -315,7 +314,7 @@ static int test03(int fd)
     
 }
 
-static void hexdump(unsigned char *dump, int size)
+static void hexdump(char *dump, int size)
 {
     int i;
 
