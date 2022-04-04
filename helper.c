@@ -357,7 +357,7 @@ int send_from_q(struct command_queue *q, int fd)
                 } else {
                     q->msgvecs[i].msg_hdr.msg_control = NULL;
                 }
-                q->msgvecs[i].msg_hdr.msg_flags = MSG_EOR | MSG_NOSIGNAL;
+                q->msgvecs[i].msg_hdr.msg_flags =  MSG_NOSIGNAL;
                 q->msgvecs[i].msg_hdr.msg_name = NULL;
                 q->msgvecs[i].msg_hdr.msg_namelen = 0;
             }
