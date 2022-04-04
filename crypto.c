@@ -141,6 +141,62 @@ static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool
                     }
                     break;
                 }
+            case C_AESCFB: {
+                    if ((el[i].pSrc + el[i].pLen > con->mappings[el->mem_id]->size) ||
+                            (el[i].pDst + el[i].pLen > con->mappings[el->mem_id]->size)) {
+                        ret = -EINVAL;
+                    } else { 
+                        if (decrypt) {
+                            ret = map_return_code(
+                                ippsAESDecryptCFB(
+                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
+                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
+                                    el[i].pLen,
+                                    el[i].BlckSize,
+                                    (void *) el[i].context,
+                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
+                        } else {
+                            ret = map_return_code(
+                                ippsAESEncryptCFB(
+                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
+                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
+                                    el[i].pLen,
+                                    el[i].BlckSize,
+                                    (void *) el[i].context,
+                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
+                        }
+                        msync((char *) el[i].pDst + con->mappings[el->mem_id]->mapped_at, el[i].pLen, MS_SYNC);
+                    }
+                    break;
+                }
+            case C_AESOFB: {
+                    if ((el[i].pSrc + el[i].pLen > con->mappings[el->mem_id]->size) ||
+                            (el[i].pDst + el[i].pLen > con->mappings[el->mem_id]->size)) {
+                        ret = -EINVAL;
+                    } else { 
+                        if (decrypt) {
+                            ret = map_return_code(
+                                ippsAESDecryptOFB(
+                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
+                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
+                                    el[i].pLen,
+                                    el[i].BlckSize,
+                                    (void *) el[i].context,
+                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
+                        } else {
+                            ret = map_return_code(
+                                ippsAESEncryptOFB(
+                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
+                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
+                                    el[i].pLen,
+                                    el[i].BlckSize,
+                                    (void *) el[i].context,
+                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
+                        }
+                        msync((char *) el[i].pDst + con->mappings[el->mem_id]->mapped_at, el[i].pLen, MS_SYNC);
+                    }
+                    break;
+                }
             }
         } 
         create_ack(cmd, ret);

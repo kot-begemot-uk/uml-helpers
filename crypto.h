@@ -36,12 +36,15 @@ struct c_en_decrypt {
     unsigned long long context;
     unsigned long long pIV;   /* we may need to copy this */
     int pLen;
+    int BlckSize;     /* CFB and OFB Block Size. Used in CFB only */
     unsigned int algo;  /* Actual AES variety */
     int mem_id; /* Memory Region ID */
 };
 #define H_CRYPTO_DECRYPT (HELPER_CRYPTO_BASE + 5)
 
 #define C_AESCBC 1
+#define C_AESCFB 2
+#define C_AESOFB 3
 
 extern void init_crypto_helper();
 
