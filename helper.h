@@ -75,7 +75,7 @@ struct mapping {
 
 struct command_queue {
     atomic_int queue_depth;
-	int head, tail;
+    int head, tail;
     pthread_spinlock_t head_lock;
     pthread_spinlock_t tail_lock;
     struct helper_command **elements;

@@ -129,20 +129,55 @@ static struct helper_command *create_test_element(int index, int algo)
     struct helper_command *cmd;
 
     struct c_en_decrypt *endata;
+    struct crypto_addr_list *element;
 
     cmd = h_create_command();
     endata = get_data(cmd);
+    element = (struct crypto_addr_list *)(((char *) endata) + sizeof(struct c_en_decrypt));
 
     cmd->header.command = H_CRYPTO_ENCRYPT;
-    cmd->data_size = sizeof(struct c_en_decrypt);
-    endata->pSrc = index * 2 * BLOCK_SIZE;
-    endata->pLen = DATA_SIZE;
+    cmd->data_size = sizeof(struct c_en_decrypt) + sizeof(struct crypto_addr_list);
+    element->pSrc = index * 2 * BLOCK_SIZE;
+    element->pSrcSize = DATA_SIZE;
+    element->pDst = index * 2 * BLOCK_SIZE + BLOCK_SIZE;
+    element->pDstSize = DATA_SIZE;
     endata->algo = algo;
     endata->BlckSize = 16;
     endata->pIV = index * 2 * BLOCK_SIZE + DATA_SIZE;
-    endata->pDst = index * 2 * BLOCK_SIZE + BLOCK_SIZE;
     endata->context = context;
     endata->mem_id = 1;
+    endata->addrCount = 1;
+
+    return cmd;
+}
+
+
+static struct helper_command *create_complex_element(int index, int algo)
+{
+    struct helper_command *cmd;
+    struct c_en_decrypt *endata;
+    struct crypto_addr_list *element;
+    int i;
+
+
+    cmd = h_create_command();
+    endata = get_data(cmd);
+    element = (struct crypto_addr_list *)(((char *) endata) + sizeof(struct c_en_decrypt));
+
+    cmd->header.command = H_CRYPTO_ENCRYPT;
+    cmd->data_size = sizeof(struct c_en_decrypt) + sizeof(struct crypto_addr_list) * 16;
+    for (i = 0 ; i < 16 ; i++) {
+        element[i].pSrc = (index + i) * 2 * BLOCK_SIZE;
+        element[i].pSrcSize = DATA_SIZE;
+        element[i].pDst = (index + i) * 2 * BLOCK_SIZE + BLOCK_SIZE;
+        element[i].pDstSize = DATA_SIZE;
+    }
+    endata->algo = algo;
+    endata->BlckSize = 16;
+    endata->pIV = (index + 15) * 2 * BLOCK_SIZE + DATA_SIZE;
+    endata->context = context;
+    endata->mem_id = 1;
+    endata->addrCount = 16;
 
     return cmd;
 }
@@ -186,6 +221,45 @@ static int run_benchmark_CBC(int fd)
     return 0;
 }
 
+static int run_benchmark_CBC_16(int fd)
+{
+    int index = 0, ret;
+    struct helper_command *cmd;
+    struct helper_ack_data *ack;
+    int i = 0;
+
+    while (index < (TOTAL_SIZE / BLOCK_SIZE - 1)) {
+        if (h_queue_depth(outq) >= MAX_QUEUE_DEPTH - 1 || index > (TOTAL_SIZE / BLOCK_SIZE - MAX_QUEUE_DEPTH) - 1) {
+            ret = send_from_q(outq, fd);
+            if (ret < 0 && ret != -EAGAIN) {
+                printf("Failed to send, error %i\n", ret);
+                exit(1);
+            }
+        }
+        if (h_queue_depth(outq) < MAX_QUEUE_DEPTH - 1) {
+            index++;
+            h_enqueue_one(outq, create_complex_element(index, C_AESCBC));
+            index = index + 16;
+        }
+        ret = recv_to_q(inq, fd);
+        if (ret < 0 && ret != -EAGAIN) {
+            printf("Failed to recv, error %i", ret);
+            exit(1);
+        } 
+
+        cmd = check_acks_and_dequeue(inq);
+        if (cmd != NULL) {
+            ack = get_data(cmd);
+            if (ack->error < 0) {
+                printf("Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
+                        ack->error, i, h_queue_depth(inq));
+                exit(1);
+            }
+            i++;
+        }
+    }
+    return 0;
+}
 static int run_benchmark_CFB(int fd)
 {
     int index = 0, ret;
@@ -320,13 +394,18 @@ int main(int argc, char *argv[])
     printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
 
     start = os_persistent_clock_emulation();
-    run_benchmark_CFB(fd);
+    run_benchmark_CBC_16(fd);
     finish = os_persistent_clock_emulation();
     printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
 
-    start = os_persistent_clock_emulation();
-    run_benchmark_OFB(fd);
-    finish = os_persistent_clock_emulation();
-    printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
+    //start = os_persistent_clock_emulation();
+    //run_benchmark_CFB(fd);
+    //finish = os_persistent_clock_emulation();
+    //printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
+
+    //start = os_persistent_clock_emulation();
+    //run_benchmark_OFB(fd);
+    //finish = os_persistent_clock_emulation();
+    //printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
 }
 

@@ -27,19 +27,31 @@ struct c_aes_context_destroy {
     unsigned long long context; /* Context to destroy. */
 };
 #define H_CRYPTO_ENCRYPT (HELPER_CRYPTO_BASE + 4)
-/* It is up to the caller to adjust any addresses before sending
- * The number of records is deduced from command->data->data_size
+
+/* We can assume that the number of pSrc and pDst in sg-lists is
+ * roughly comparable or even equal for most use cases. 
+ * As a result, we can allocate all records as src, dst and sizes
+ * instead of bothering with separate src and dst lists
  */
+
+struct crypto_addr_list {
+    unsigned long long pSrc;
+    unsigned long long pDst;
+    int pSrcSize;
+    int pDstSize;
+};
+
 struct c_en_decrypt {
-    unsigned long long pSrc; /* src address within mmaped area */
-    unsigned long long pDst; /* dst address within mmaped area */
     unsigned long long context;
     unsigned long long pIV;   /* we may need to copy this */
+    int addrCount;
     int pLen;
-    int BlckSize;     /* CFB and OFB Block Size. Used in CFB only */
+    int BlckSize;     /* CFB and OFB Block Size. */
     unsigned int algo;  /* Actual AES variety */
     int mem_id; /* Memory Region ID */
 };
+
+
 #define H_CRYPTO_DECRYPT (HELPER_CRYPTO_BASE + 5)
 
 #define C_AESCBC 1

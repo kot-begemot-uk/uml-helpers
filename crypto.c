@@ -103,107 +103,118 @@ static int c_destroy_aes_context(struct helper_command *cmd)
     return -EINVAL;
 }
 
+/* Compute and check address */
+
+static inline void *compute_address(unsigned long long addr,
+                                    size_t size,
+                                    struct connection *con,
+                                    struct helper_command *cmd)
+{
+    unsigned long long res = addr;
+    struct c_en_decrypt *el = (struct c_en_decrypt *) cmd->data;
+
+    if (res > con->mappings[el->mem_id]->size ||
+            res + size > con->mappings[el->mem_id]->size) {
+        return NULL;
+    }
+
+    res += con->mappings[el->mem_id]->mapped_at;
+
+    return (void *) res;
+
+}
+
+#define AES_BLOCK 16
+
+static inline unsigned long long MIN(unsigned long long a, unsigned long long b)
+{
+    if (a > b) return b;
+    return a;
+}
+
+static inline unsigned long long MAX(unsigned long long a, unsigned long long b)
+{
+    if (a < b) return b;
+    return a;
+}
 
 static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool decrypt)
 {
-    int num_elements = cmd->data_size / sizeof(struct c_en_decrypt);
-    int i, ret = 0;
+    int ret = 0;
+    int src = 0, dst = 0;
+    int src_off = 0, dst_off = 0;
+    size_t size = 0;
     struct c_en_decrypt *el = (struct c_en_decrypt *) cmd->data;
+    struct crypto_addr_list *pSrcElem, *pDstElem;
+    unsigned long long pSrc, pDst, pIV, nextIV, min, max;
 
-    for (i = 0; i < num_elements; i++) {
-        ret = -EINVAL;
-        if ((el->mem_id >= 0 && el->mem_id < MAX_MAPPINGS) &&
-              (con->mappings[el->mem_id]->fd > 0)){
-            switch (el[i].algo) {
-            case C_AESCBC: {
-                    if ((el[i].pSrc + el[i].pLen > con->mappings[el->mem_id]->size) ||
-                            (el[i].pDst + el[i].pLen > con->mappings[el->mem_id]->size)) {
-                        ret = -EINVAL;
-                    } else { 
-                        if (decrypt) {
-                            ret = map_return_code(
-                                ippsAESDecryptCBC(
-                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                                    el[i].pLen,
-                                    (void *) el[i].context,
-                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                        } else {
-                            ret = map_return_code(
-                                ippsAESEncryptCBC(
-                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                                    el[i].pLen,
-                                    (void *) el[i].context,
-                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                        }
-                        msync((char *) el[i].pDst + con->mappings[el->mem_id]->mapped_at, el[i].pLen, MS_SYNC);
-                    }
-                    break;
-                }
-            case C_AESCFB: {
-                    if ((el[i].pSrc + el[i].pLen > con->mappings[el->mem_id]->size) ||
-                            (el[i].pDst + el[i].pLen > con->mappings[el->mem_id]->size)) {
-                        ret = -EINVAL;
-                    } else { 
-                        if (decrypt) {
-                            ret = map_return_code(
-                                ippsAESDecryptCFB(
-                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                                    el[i].pLen,
-                                    el[i].BlckSize,
-                                    (void *) el[i].context,
-                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                        } else {
-                            ret = map_return_code(
-                                ippsAESEncryptCFB(
-                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                                    el[i].pLen,
-                                    el[i].BlckSize,
-                                    (void *) el[i].context,
-                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                        }
-                        msync((char *) el[i].pDst + con->mappings[el->mem_id]->mapped_at, el[i].pLen, MS_SYNC);
-                    }
-                    break;
-                }
-            case C_AESOFB: {
-                    if ((el[i].pSrc + el[i].pLen > con->mappings[el->mem_id]->size) ||
-                            (el[i].pDst + el[i].pLen > con->mappings[el->mem_id]->size)) {
-                        ret = -EINVAL;
-                    } else { 
-                        if (decrypt) {
-                            ret = map_return_code(
-                                ippsAESDecryptOFB(
-                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                                    el[i].pLen,
-                                    el[i].BlckSize,
-                                    (void *) el[i].context,
-                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                        } else {
-                            ret = map_return_code(
-                                ippsAESEncryptOFB(
-                                    (unsigned char *) (el[i].pSrc + con->mappings[el->mem_id]->mapped_at),
-                                    (unsigned char *) (el[i].pDst + con->mappings[el->mem_id]->mapped_at),
-                                    el[i].pLen,
-                                    el[i].BlckSize,
-                                    (void *) el[i].context,
-                                    (unsigned char *) (el[i].pIV  + con->mappings[el->mem_id]->mapped_at)));
-                        }
-                        msync((char *) el[i].pDst + con->mappings[el->mem_id]->mapped_at, el[i].pLen, MS_SYNC);
-                    }
-                    break;
+    pIV = el->pIV;
+
+    pSrcElem = pDstElem =
+        (struct crypto_addr_list *) ((char *) get_data(cmd) + sizeof(struct c_en_decrypt));
+
+    min = con->mappings[el->mem_id]->size;
+    max = 0;
+
+
+    while (ret >= 0 && src < el->addrCount && dst < el->addrCount) {
+        size = pSrcElem[src].pSrcSize - src_off;
+        pSrc = pSrcElem[src].pSrc + src_off;
+        pDst = pDstElem[dst].pDst + dst_off;
+        if (size <= pDstElem[dst].pDstSize - dst_off) {
+            /* size OK, src is less or equal to dst */
+            dst_off = pDstElem[dst].pDstSize - dst_off - size;
+            if (!dst_off) {
+                /* no offset in dst block, increment to next
+                 * sg list element
+                 */
+                dst++;
+            } 
+            src++;
+        } else {
+            /* dst block smaller than src */
+            size = pDstElem[dst].pDstSize - dst_off;
+            src_off = pSrcElem[src].pSrcSize - src_off - size;
+            dst++;
+        }
+
+        min = MIN(pSrc, min);
+        min = MIN(pDst, min);
+        max = MAX(pSrc + size, max);
+        max = MAX(pDst + size, max);
+
+        nextIV = pDst + size - AES_BLOCK;
+
+        switch (el->algo) {
+        case C_AESCBC: {
+                if (decrypt) {
+                    ret = map_return_code(
+                        ippsAESDecryptCBC(
+                            compute_address(pSrc, size, con, cmd),
+                            compute_address(pDst, size, con, cmd),
+                            size,
+                            (void *) el->context,
+                            compute_address(pIV, AES_BLOCK, con, cmd)));
+                } else {
+                    ret = map_return_code(
+                        ippsAESEncryptCBC(
+                            compute_address(pSrc, size, con, cmd),
+                            compute_address(pDst, size, con, cmd),
+                            size,
+                            (void *) el->context,
+                            compute_address(pIV, AES_BLOCK, con, cmd)));
                 }
             }
-        } 
-        create_ack(cmd, ret);
-        if (ret) {
-            LOG("Failed to en_decrypt %d\n", ret);
             break;
         }
+        pIV = nextIV; /* output feedback for CBC */
+    }
+    if (ret >= 0) {
+        msync((void *) min + con->mappings[el->mem_id]->mapped_at, max, MS_SYNC);
+    }
+    create_ack(cmd, ret);
+    if (ret) {
+        LOG("Failed to en_decrypt %d\n", ret);
     }
     return ret;
 }
