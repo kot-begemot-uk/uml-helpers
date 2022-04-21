@@ -64,7 +64,7 @@ struct helper_command *h_create_command()
     struct helper_command *res = malloc(sizeof(struct helper_command));
 
     /* TODO: use a pool */
-
+    res->header.version = PROTOCOL_VERSION;
 	res->header.sequence = seq++;
     res->header.command = 0;
     res->data = malloc(HELPER_MAX_DATA);

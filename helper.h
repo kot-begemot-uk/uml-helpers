@@ -14,12 +14,14 @@
 #include <stdatomic.h>
 #include <pthread.h>
 
+#define PROTOCOL_VERSION 1
 
 
 #ifndef __UM_EX_HELPER_H
 #define __UM_EX_HELPER_H
 
 struct helper_header {
+    unsigned int version;
     unsigned int command;
     unsigned long sequence;
 };
