@@ -49,6 +49,8 @@ static unsigned char aeskey[32] = {
 
 unsigned long long context;
 
+char *temp_map;
+
 static void initialize(int fd)
 {
     int mfd = 0;
@@ -60,6 +62,7 @@ static void initialize(int fd)
 
     struct c_aes_init_data *aesinit;
     struct c_aes_context_reply *aes_ctx;
+    int block;
 
 
     inq = create_queue();
@@ -76,8 +79,17 @@ static void initialize(int fd)
 
     mdata->mem_id = 1;
     mdata->size = 268435456;
-    mfd = open("/tmp/test-map", O_RDWR);
+    temp_map = tempnam(NULL, "map");
+    fprintf(stderr, "map file is %s\n", temp_map);
+    mfd = open(temp_map, O_RDWR | O_CREAT);
+
+    lseek(mfd, mdata->size, SEEK_SET);
+    write(mfd, "0", 1);
+    lseek(mfd, 0, SEEK_SET);
+    
     memblock = mmap(NULL, mdata->size, PROT_WRITE | PROT_READ, MAP_SHARED, mfd, 0);
+    memset(memblock, 0, mdata->size = 268435456);
+    msync(memblock, mdata->size = 268435456, MS_SYNC);
 
     cmsg->cmsg_level = SOL_SOCKET;
     cmsg->cmsg_type = SCM_RIGHTS;
@@ -400,6 +412,8 @@ int main(int argc, char *argv[])
     run_benchmark_CBC_16(fd);
     finish = os_persistent_clock_emulation();
     printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
+
+    unlink(temp_map);
 
     //start = os_persistent_clock_emulation();
     //run_benchmark_CFB(fd);
