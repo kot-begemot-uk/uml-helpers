@@ -44,7 +44,8 @@ struct crypto_addr_list {
 struct c_en_decrypt {
     unsigned long long context;
     unsigned long long pIV;   /* we may need to copy this */
-    int addrCount;
+    int srcAddrCount;
+    int dstAddrCount;
     int pLen;
     int BlckSize;     /* CFB and OFB Block Size. */
     unsigned int algo;  /* Actual AES variety */

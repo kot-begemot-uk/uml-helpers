@@ -157,7 +157,7 @@ static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool
     max = 0;
 
 
-    while (ret >= 0 && src < el->addrCount && dst < el->addrCount) {
+    while (ret >= 0 && src < el->srcAddrCount && dst < el->dstAddrCount) {
         size = pSrcElem[src].pSrcSize - src_off;
         pSrc = pSrcElem[src].pSrc + src_off;
         pDst = pDstElem[dst].pDst + dst_off;

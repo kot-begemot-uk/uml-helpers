@@ -146,7 +146,8 @@ static struct helper_command *create_test_element(int index, int algo)
     endata->pIV = index * 2 * BLOCK_SIZE + DATA_SIZE;
     endata->context = context;
     endata->mem_id = 1;
-    endata->addrCount = 1;
+    endata->srcAddrCount = 1;
+    endata->dstAddrCount = 1;
 
     return cmd;
 }
@@ -177,7 +178,8 @@ static struct helper_command *create_complex_element(int index, int algo)
     endata->pIV = (index + 15) * 2 * BLOCK_SIZE + DATA_SIZE;
     endata->context = context;
     endata->mem_id = 1;
-    endata->addrCount = 16;
+    endata->srcAddrCount = 16;
+    endata->dstAddrCount = 16;
 
     return cmd;
 }
@@ -193,7 +195,7 @@ static int run_benchmark_CBC(int fd)
         if (h_queue_depth(outq) >= MAX_QUEUE_DEPTH - 1 || index > (TOTAL_SIZE / BLOCK_SIZE - MAX_QUEUE_DEPTH) - 1) {
             ret = send_from_q(outq, fd);
             if (ret < 0 && ret != -EAGAIN) {
-                printf("Failed to send, error %i\n", ret);
+                fprintf(stderr,"Failed to send, error %i\n", ret);
                 exit(1);
             }
         }
@@ -203,7 +205,7 @@ static int run_benchmark_CBC(int fd)
         }
         ret = recv_to_q(inq, fd);
         if (ret < 0 && ret != -EAGAIN) {
-            printf("Failed to recv, error %i", ret);
+            fprintf(stderr,"Failed to recv, error %i", ret);
             exit(1);
         } 
 
@@ -211,7 +213,7 @@ static int run_benchmark_CBC(int fd)
         if (cmd != NULL) {
             ack = get_data(cmd);
             if (ack->error < 0) {
-                printf("Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
+                fprintf(stderr,"Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
                         ack->error, i, h_queue_depth(inq));
                 exit(1);
             }
@@ -232,7 +234,7 @@ static int run_benchmark_CBC_16(int fd)
         if (h_queue_depth(outq) >= MAX_QUEUE_DEPTH - 1 || index > (TOTAL_SIZE / BLOCK_SIZE - MAX_QUEUE_DEPTH) - 1) {
             ret = send_from_q(outq, fd);
             if (ret < 0 && ret != -EAGAIN) {
-                printf("Failed to send, error %i\n", ret);
+                fprintf(stderr,"Failed to send, error %i\n", ret);
                 exit(1);
             }
         }
@@ -243,7 +245,7 @@ static int run_benchmark_CBC_16(int fd)
         }
         ret = recv_to_q(inq, fd);
         if (ret < 0 && ret != -EAGAIN) {
-            printf("Failed to recv, error %i", ret);
+            fprintf(stderr,"Failed to recv, error %i", ret);
             exit(1);
         } 
 
@@ -251,7 +253,7 @@ static int run_benchmark_CBC_16(int fd)
         if (cmd != NULL) {
             ack = get_data(cmd);
             if (ack->error < 0) {
-                printf("Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
+                fprintf(stderr,"Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
                         ack->error, i, h_queue_depth(inq));
                 exit(1);
             }
@@ -271,7 +273,7 @@ static int run_benchmark_CFB(int fd)
         if (h_queue_depth(outq) >= MAX_QUEUE_DEPTH - 1 || index > (TOTAL_SIZE / BLOCK_SIZE - MAX_QUEUE_DEPTH) - 1) {
             ret = send_from_q(outq, fd);
             if (ret < 0 && ret != -EAGAIN) {
-                printf("Failed to send, error %i\n", ret);
+                fprintf(stderr,"Failed to send, error %i\n", ret);
                 exit(1);
             }
         }
@@ -281,7 +283,7 @@ static int run_benchmark_CFB(int fd)
         }
         ret = recv_to_q(inq, fd);
         if (ret < 0 && ret != -EAGAIN) {
-            printf("Failed to recv, error %i", ret);
+            fprintf(stderr,"Failed to recv, error %i", ret);
             exit(1);
         } 
 
@@ -289,7 +291,7 @@ static int run_benchmark_CFB(int fd)
         if (cmd != NULL) {
             ack = get_data(cmd);
             if (ack->error < 0) {
-                printf("Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
+                fprintf(stderr,"Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
                         ack->error, i, h_queue_depth(inq));
                 exit(1);
             }
@@ -310,7 +312,7 @@ static int run_benchmark_OFB(int fd)
         if (h_queue_depth(outq) >= MAX_QUEUE_DEPTH - 1 || index > (TOTAL_SIZE / BLOCK_SIZE - MAX_QUEUE_DEPTH) - 1) {
             ret = send_from_q(outq, fd);
             if (ret < 0 && ret != -EAGAIN) {
-                printf("Failed to send, error %i\n", ret);
+                fprintf(stderr,"Failed to send, error %i\n", ret);
                 exit(1);
             }
         }
@@ -320,7 +322,7 @@ static int run_benchmark_OFB(int fd)
         }
         ret = recv_to_q(inq, fd);
         if (ret < 0 && ret != -EAGAIN) {
-            printf("Failed to recv, error %i", ret);
+            fprintf(stderr,"Failed to recv, error %i", ret);
             exit(1);
         } 
 
@@ -328,7 +330,7 @@ static int run_benchmark_OFB(int fd)
         if (cmd != NULL) {
             ack = get_data(cmd);
             if (ack->error < 0) {
-                printf("Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
+                fprintf(stderr,"Failed to encrypt, %p cmd %i error %i, element %i queue depth %i\n", ack, cmd->header.command, 
                         ack->error, i, h_queue_depth(inq));
                 exit(1);
             }
@@ -352,7 +354,7 @@ static int connect_to_server(char *pathname)
 
     if (connect(fd, (const struct sockaddr *) &name, sizeof(name)) < 0) {
         close(fd);
-        printf("Error in connect %d\n", -errno);
+        fprintf(stderr,"Error in connect %d\n", -errno);
         return -errno;
     }
     return fd;
@@ -382,7 +384,7 @@ int main(int argc, char *argv[])
         exit(EINVAL);
     fd = connect_to_server(argv[1]);
     if (fd < 0) {
-        printf("Connect error %s\n", strerror(-fd));
+        fprintf(stderr, "Connect error %s\n", strerror(-fd));
         exit(-fd);
     }
     initialize(fd);
@@ -392,6 +394,7 @@ int main(int argc, char *argv[])
     run_benchmark_CBC(fd);
     finish = os_persistent_clock_emulation();
     printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
+
 
     start = os_persistent_clock_emulation();
     run_benchmark_CBC_16(fd);
@@ -406,6 +409,6 @@ int main(int argc, char *argv[])
     //start = os_persistent_clock_emulation();
     //run_benchmark_OFB(fd);
     //finish = os_persistent_clock_emulation();
-    //printf("%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
+    //fprintf(stderr,"%f\n", (TOTAL_SIZE / BLOCK_SIZE - 1) * 1500*8.0/(finish-start));
 }
 
