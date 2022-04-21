@@ -81,7 +81,7 @@ static void initialize(int fd)
     mdata->size = 268435456;
     temp_map = tempnam(NULL, "map");
     fprintf(stderr, "map file is %s\n", temp_map);
-    mfd = open(temp_map, O_RDWR | O_CREAT);
+    mfd = open(temp_map, O_RDWR | O_CREAT, S_IRWXU);
 
     lseek(mfd, mdata->size, SEEK_SET);
     write(mfd, "0", 1);
