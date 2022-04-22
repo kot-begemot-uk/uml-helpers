@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include "helper.h"
 
 
@@ -9,6 +10,7 @@
 
 #define H_CRYPTO_CREATE_AES_CONTEXT (HELPER_CRYPTO_BASE + 1)
 struct c_aes_init_data {
+    unsigned long long remote_ctx;
     int keylen;
     char key; /* Maximum key size 256 bits == 32 bytes */
 };
@@ -25,6 +27,7 @@ struct c_aes_context_reply {
 #define H_CRYPTO_DESTROY_AES_CONTEXT (HELPER_CRYPTO_BASE + 3)
 struct c_aes_context_destroy {
     unsigned long long context; /* Context to destroy. */
+    bool acked;
 };
 #define H_CRYPTO_ENCRYPT (HELPER_CRYPTO_BASE + 4)
 
@@ -50,6 +53,7 @@ struct c_en_decrypt {
     int BlckSize;     /* CFB and OFB Block Size. */
     unsigned int algo;  /* Actual AES variety */
     int mem_id; /* Memory Region ID */
+    bool acked;
 };
 
 

@@ -24,6 +24,8 @@ static int (*process_command)(
         struct helper_command *command, struct connection *con 
         );
 
+static void (*cleanup_hook)(struct connection *con);
+
 #define MAX_CLIENTS 256
 
 static struct connection *clients;
@@ -34,6 +36,11 @@ static int epoll_fd;
 void set_process_command(int (*arg)(struct helper_command *command, struct connection *con))
 {
 	process_command = arg;
+}
+
+void set_cleanup_hook(void (*arg)(struct connection *con))
+{
+	cleanup_hook = arg;
 }
 
 static int queue_advance_head(struct command_queue *q, int advance)
@@ -470,6 +477,7 @@ static void close_connection(struct connection *con)
     if (con->fd > 0) {
         LOG("closing fd %i\n", con->fd);
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, con->fd, NULL); 
+        cleanup_hook(con);
         for (i=0; i<MAX_MAPPINGS; i++) {
             delete_mapping(con->mappings[i]);
         }

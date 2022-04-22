@@ -110,6 +110,7 @@ extern void h_destroy_command(struct helper_command *cmd);
 extern struct command_queue *create_queue();
 extern int h_queue_depth(struct command_queue *q);
 extern struct helper_command *check_acks_and_dequeue(struct command_queue *q);
+extern void set_cleanup_hook(void (*arg)(struct connection *con));
 
 #ifdef DEBUG
 #define LOG(...) fprintf (stderr, __VA_ARGS__)

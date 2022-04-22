@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/epoll.h>
@@ -160,6 +161,7 @@ static struct helper_command *create_test_element(int index, int algo)
     endata->mem_id = 1;
     endata->srcAddrCount = 1;
     endata->dstAddrCount = 1;
+    endata->acked = true;
 
     return cmd;
 }
@@ -192,6 +194,7 @@ static struct helper_command *create_complex_element(int index, int algo)
     endata->mem_id = 1;
     endata->srcAddrCount = 16;
     endata->dstAddrCount = 16;
+    endata->acked = true;
 
     return cmd;
 }

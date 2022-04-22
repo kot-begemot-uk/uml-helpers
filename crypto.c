@@ -7,12 +7,107 @@
 #include "crypto.h"
 #include "ippcp.h"
 
-#define MAX_CONTEXTS 256
 
-static void **contexts;
-static int first_empty;
+struct crypto_context {
+    struct crypto_context *next;
+    void *local_ctx;
+    unsigned long long remote_ctx;
+    struct connection *con;
+};
 
 
+static struct crypto_context *contexts = NULL;
+
+static inline void add_context(struct crypto_context *ctx)
+{
+    ctx->next = contexts;
+    contexts = ctx;
+}
+
+static inline void del_ctx_by_id(unsigned long long id)
+{
+    struct crypto_context *next = contexts->next;
+    struct crypto_context *cur = contexts;
+
+    if (contexts->remote_ctx == id) {
+        contexts = contexts->next;
+        free(cur);
+    }
+    do {
+        if (next->remote_ctx == id) {
+            cur->next = next->next;
+            free(cur);
+            break;
+        }
+        cur = next;
+        next = next->next;
+    } while (next);
+}
+
+static inline void del_ctx_by_ctx(void *ctx)
+{
+    struct crypto_context *next = contexts->next;
+    struct crypto_context *cur = contexts;
+
+    if (contexts->local_ctx == ctx) {
+        contexts = contexts->next;
+        free(cur);
+    }
+    do {
+        if (next->local_ctx == ctx) {
+            cur->next = next->next;
+            free(cur);
+            break;
+        }
+        cur = next;
+        next = next->next;
+    } while (next);
+    
+}
+
+static inline void *find_ctx_by_id(unsigned long long id)
+{
+    struct crypto_context *cur = contexts;
+    while (cur) {
+        if (cur->remote_ctx == id) {
+            return cur->local_ctx;
+        }
+        cur = cur->next;
+    }
+    return NULL;
+}
+
+static void cleanup_hook(struct connection *con)
+{
+    struct crypto_context *next;
+    struct crypto_context *cur;
+
+    if (contexts) {
+        do {
+            if (contexts->con == con) {
+                cur = contexts;
+                contexts = contexts->next;
+                free(cur);
+            } else {
+                break;
+            }
+        } while (contexts);
+    }
+
+    if (contexts) {
+        next = contexts->next;
+        cur = contexts;
+        do {
+            if (next->con == con) {
+                cur->next = next->next;
+                free(cur);
+                break;
+            }
+            cur = next;
+            next = next->next;
+        } while (next);
+    }
+}
 
 static int map_return_code(int ipp_return)
 {
@@ -50,57 +145,51 @@ static int map_return_code(int ipp_return)
 
 
 
-static int c_create_aes_context(struct helper_command *cmd)
+static int c_create_aes_context(struct helper_command *cmd, struct connection *con)
 {
-    int ctx_size, i, ret;
-    void *ctx = NULL;
+    int ctx_size, ret;
     struct c_aes_init_data *initdata = get_data(cmd);
     struct c_aes_context_reply *replydata = get_data(cmd);
+    struct crypto_context *rec;
 
     ippsAESGetSize(&ctx_size); 
-    for (i = first_empty; i < MAX_CONTEXTS; i++) {
-        if (contexts[i] == NULL) {
-            ctx = contexts[i] = malloc(ctx_size);
-        }
-        ret = map_return_code(
-            ippsAESInit(
-                (const Ipp8u*)&initdata->key,
-                initdata->keylen,
-                (IppsAESSpec*) ctx,
-                ctx_size));
-        if (ret == 0) {
-            cmd->header.command = H_CRYPTO_CREATE_CONTEXT_REPLY;
-            replydata->context = (unsigned long long) ctx;
-            replydata->status = 0;
-            first_empty = i + 1;
-            return 0;
-        } else {
-            free(ctx);
-            contexts[i] = NULL;
-            replydata->context = 0;
-            replydata->status = 0;
-            return ret;
-        }
+    rec = malloc(sizeof(struct crypto_context));
+    rec->local_ctx = malloc(ctx_size);
+    rec->remote_ctx = initdata->remote_ctx;
+    rec->con = con;
+
+    ret = map_return_code(
+        ippsAESInit(
+            (const Ipp8u*)&initdata->key,
+            initdata->keylen,
+            (IppsAESSpec*) rec->local_ctx,
+            ctx_size));
+    if (ret == 0) {
+        cmd->header.command = H_CRYPTO_CREATE_CONTEXT_REPLY;
+        replydata->context = (unsigned long long) rec->local_ctx;
+        replydata->status = 0;
+        return 0;
+    } else {
+        free(rec->local_ctx);
+        free(rec);
+        replydata->context = 0;
+        replydata->status = 0;
+        return ret;
     }
     return -ENOSPC;
 }
 
 static int c_destroy_aes_context(struct helper_command *cmd)
 {
-    int i;
     struct c_aes_context_destroy *destroydata = get_data(cmd);
 
-    for (i=0; i<MAX_CONTEXTS; i++) {
-        if (contexts[i] == (void *) destroydata->context) {
-            contexts[i] = NULL;
-            if (i < first_empty) {
-                first_empty = i;
-            }
-            create_ack(cmd, 0);
-        }
+    if (destroydata->acked) {
+        del_ctx_by_ctx((void *)destroydata->context);
+    } else {
+        del_ctx_by_id(destroydata->context);
     }
-    create_ack(cmd, -EINVAL);
-    return -EINVAL;
+    create_ack(cmd, 0);
+    return 0;
 }
 
 /* Compute and check address */
@@ -147,6 +236,7 @@ static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool
     struct c_en_decrypt *el = (struct c_en_decrypt *) cmd->data;
     struct crypto_addr_list *pSrcElem, *pDstElem;
     unsigned long long pSrc, pDst, pIV, nextIV, min, max;
+    void *ctx;
 
     pIV = el->pIV;
 
@@ -155,6 +245,12 @@ static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool
 
     min = con->mappings[el->mem_id]->size;
     max = 0;
+
+    if (el->acked) {
+        ctx = (void *) el->context;
+    } else {
+        ctx = find_ctx_by_id(el->context);
+    }
 
 
     while (ret >= 0 && src < el->srcAddrCount && dst < el->dstAddrCount) {
@@ -193,7 +289,7 @@ static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool
                             compute_address(pSrc, size, con, cmd),
                             compute_address(pDst, size, con, cmd),
                             size,
-                            (void *) el->context,
+                            ctx,
                             compute_address(pIV, AES_BLOCK, con, cmd)));
                 } else {
                     ret = map_return_code(
@@ -201,7 +297,7 @@ static int c_en_decrypt(struct helper_command *cmd, struct connection *con, bool
                             compute_address(pSrc, size, con, cmd),
                             compute_address(pDst, size, con, cmd),
                             size,
-                            (void *) el->context,
+                            ctx,
                             compute_address(pIV, AES_BLOCK, con, cmd)));
                 }
             }
@@ -224,7 +320,7 @@ static int handle_command(struct helper_command *cmd, struct connection *con)
 
     switch(cmd->header.command) {
         case  H_CRYPTO_CREATE_AES_CONTEXT:
-            return c_create_aes_context(cmd);
+            return c_create_aes_context(cmd, con);
         case  H_CRYPTO_DESTROY_AES_CONTEXT:
             return c_destroy_aes_context(cmd);
         case  H_CRYPTO_ENCRYPT:
@@ -239,13 +335,8 @@ static int handle_command(struct helper_command *cmd, struct connection *con)
 
 void init_crypto_helper()
 {
-    int i;
-
-    contexts = calloc(MAX_CONTEXTS, sizeof (void*));
-    for (i=0; i<MAX_CONTEXTS; i++) {
-        contexts[i] = NULL;
-    }
     set_process_command(handle_command);
+    set_cleanup_hook(cleanup_hook);
 }
 
 
