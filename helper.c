@@ -158,8 +158,9 @@ static struct mapping *create_mapping(struct helper_command *cmd)
         map = malloc(sizeof(struct mapping));
         map->id = cdata->mem_id;
         map->fd = fd;
+        map->skip = cdata->skip;
         map->mapped_at = (unsigned long long) mmap(
-                NULL, cdata->size, PROT_WRITE | PROT_READ, MAP_SHARED, map->fd, 0);
+                NULL, cdata->size, PROT_WRITE | PROT_READ, MAP_SHARED, map->fd, cdata->skip); 
         map->size = cdata->size;
         if (map->mapped_at == (unsigned long long) MAP_FAILED) {
             LOG("failed to map\n");

@@ -202,6 +202,12 @@ static inline void *compute_address(unsigned long long addr,
     unsigned long long res = addr;
     struct c_en_decrypt *el = (struct c_en_decrypt *) cmd->data;
 
+    if (addr < con->mappings[el->mem_id]->skip) {
+        return NULL;
+    }
+
+    res -= con->mappings[el->mem_id]->skip;
+
     if (res > con->mappings[el->mem_id]->size ||
             res + size > con->mappings[el->mem_id]->size) {
         return NULL;

@@ -49,6 +49,7 @@ struct helper_ack_data {
 struct helper_map_data {
     unsigned long mem_id;       /* Memory region ID 0 to MAX_MAPPINGS. */
     unsigned long long size;    /* Memory region size. */
+    unsigned long long skip;    /* Skip N bytes at start - used in order not to map UML code+data.*/
 };
 
 #define EX_H_MAP 2              /* Data: helper_map_data, fd in ancilliary SCM_RIGHTS */
@@ -69,6 +70,7 @@ struct mapping {
     unsigned int id;
     unsigned long long mapped_at;
     size_t size;
+    size_t skip;
     int fd;
 };
 
